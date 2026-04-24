@@ -1,0 +1,45 @@
+[project]
+name = "hyperguard92"
+version = "0.1.0"
+description = "Modern desktop GUI for managing Windows 11 Virtualization-Based Security features."
+requires-python = ">=3.14"
+dependencies = [
+    "nicegui>=2.0",
+    "pydantic>=2.12",
+    "pydantic-settings>=2.5",
+    "python-dotenv>=1.0",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+hyperguard92 = "src.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "SIM", "PTH"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
