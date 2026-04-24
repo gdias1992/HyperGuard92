@@ -10,7 +10,7 @@ The goal is to ensure consistent, high-quality contributions that align with pro
 
 ## 📚 Core Documentation
 To fully grasp the setup, architecture, and design, refer to the following critical files:
-*   [**README.md**](README.md): High-level project description, tech stack overview, and setup procedures.
+*   [**TECHNICAL.md**](TECHNICAL.md): High-level project description, tech stack overview, and setup procedures.
 *   [**STRUCTURE.md**](.context/STRUCTURE.md): Directory structure and architectural patterns.
 *   [**TECHNOLOGIES.md**](.context/TECHNOLOGIES.md): Detailed specification of all major libraries, frameworks, and tools used.
 *   [**CODING.md**](.context/CODING.md): Core coding principles, naming conventions, and specific programming patterns.

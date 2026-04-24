@@ -1,193 +1,85 @@
-# 🎨 HyperGuard92
+# 🛡️ HyperGuard92
 
-## 📌 Context
-**HyperGuard92** is a modern desktop application (built with Python) designed to give power users, developers, and reverse engineers low-level control over Windows 11 Virtualization-Based Security (VBS) features. By default, Windows locks down many virtualization features, which can conflict with third-party hypervisors, custom drivers, and anti-cheat systems. This app provides a safe, graphical interface to manage and disable these conflicting security layers while providing robust backup and restore capabilities.
+> A friendly Windows 11 utility that prepares your system to run applications which rely on **hypervisor bypass** techniques — custom hypervisors, research drivers, kernel debuggers, reverse-engineering tools, and similar low-level software.
 
-## 🎯 Core Application Goals
-1. **Detect**: Automatically analyze the system environment (BIOS VT-x/SVM, OS Build, WMI health) and current security feature states.
-2. **Control**: Safely disable tightly integrated Windows security features (VBS, HVCI, Credential Guard, Meltdown mitigations, Windows Hyper-V).
-3. **Manage State**: Keep track of every modification made to the system registry, Boot Configuration Data (BCD), and services to allow for precise "Revert Changes" operations.
-4. **Graphical Interface**: Utilize **NiceGUI** to provide a seamless, browser-based graphical user interface that feels native and responsive.
+![HyperGuard92 Control Panel](.images/hyperguard92.png)
 
-## 🖥️ Key UI Screens & Components Needed
+## ✨ What does this app do?
 
-### 1. 📊 The Dashboard (System Health & Environment)
-- **Top-Level Status**: A clear banner indicating if the system is currently "Standard/Secure" or "Modified/Optimized for Third-Party Hypervisors".
-- **Hardware & Env Checks**: Visual indicators (icons: ✅ / ❌ / ⚠️) for prerequisites: 
-  - Admin Privileges
-  - BIOS Virtualization (VT-x/SVM)
-  - WMI Health status
-- **Action Dashboard**: Prominent "Optimize System" (disable conflicting features) and "Revert Changes" (restore from backup) buttons.
+By default, Windows 11 enables several security layers (VBS, HVCI, Credential Guard, Memory Integrity, Hyper-V, and more) that **block third-party hypervisors and unsigned drivers** from running.
 
-### 2. 🛡️ The Feature Matrix (Toggles & Status)
-A detailed list or grid displaying the 14 core features managed by the app. Each row/card should include:
-- **Feature Name** (e.g., Memory Integrity (HVCI), Credential Guard, Windows Hello Protection).
-- **Current Status Pill**: e.g., `Active`, `Disabled`, or `Locked by UEFI`.
-- **Toggle/Action Button**: Individual controls to manage the feature.
-- **Tooltip/Info Icon**: Hovering over a feature should briefly explain what it does (e.g., "HVCI: Prevents unsigned drivers from loading").
+**HyperGuard92** lets you toggle those layers safely from a single screen:
 
-#### 📋 Managed Features List
-The application interacts with the following system components:
+- Click **PIRATE MODE** when you need to run a hypervisor-bypass tool — Windows is reconfigured to allow it.
+- Click **DEFENDER MODE** to put every protection back exactly the way it was — your system returns to its original secure state.
 
-| # | Feature | Targeted Value | Scope | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| **01** | **Virtualization (VT-x/SVM)** | **Enabled** | BIOS | Mandatory prerequisite. App fails if disabled in BIOS. |
-| **02** | **WMI (WinMgmt)** | **Functional** | System | Used for queries. Includes a "Troubleshoot" fix if broken. |
-| **03** | **VBS (Virtualization-Based Security)** | **Disabled** | Registry/UEFI | The primary target. Disables the core security engine. |
-| **04** | **HVCI (Memory Integrity)** | **Disabled** | Registry/UEFI | Disables kernel-mode code integrity checks. |
-| **05** | **Credential Guard** | **Disabled** | Registry/UEFI | Disables LSA isolation. |
-| **06** | **DSE (Driver Signature Enforcement)** | **Disabled** | Boot | Disabled via "Startup Settings" (F7) for one boot cycle. |
-| **07** | **KVA Shadow (Meltdown Fix)** | **Disabled** | Registry | Disables syscall isolation (often required for hooks). |
-| **08** | **Windows Hypervisor** | **Disabled** | BCD | Switches `hypervisorlaunchtype` to `off`. |
-| **09** | **FACEIT Anti-Cheat** | **Disabled** | Service | Stops and disables services that block unsigned drivers. |
-| **10** | **Windows Hello Protection** | **Removed** | Registry/TPM | Removes VBS-based isolation for PIN/Biometrics. |
-| **11** | **Secure Biometrics** | **Disabled** | Registry | Disables enhanced sign-in security features. |
-| **12** | **HyperGuard / System Guard** | **Disabled** | Registry | Disables SMM and boot integrity protections. |
-| **13** | **Smart App Control** | **Monitor** | Registry | Notifies user if SAC might block the tool. |
-| **14** | **BitLocker** | **Suspended** | System | Momentarily suspended to allow advanced boot options. |
+Everything is backed up before it changes, so you can always revert with one click.
 
-### 3. ⚠️ Warning Modals & Action Flows
-- **BitLocker Intervention**: A modal that appears to warn users that BitLocker will be temporarily suspended to change boot parameters.
-- **Windows Hello Reset**: A critical dialog warning that biometric fingerprints and PINs will be reset if VBS is disabled, requiring the user to type their fallback password next login.
-- **Smart App Control Notification**: A dismissible banner if Smart App Control is attempting to block the application. 
-
-### 4. ⏳ Progress & Execution State
-- **Console / Status Log**: A bottom pane or sidebar that shows terminal-like output as the app modifies registries (`winreg`) and BCD environments in the background.
-- **Progress Bars**: Smooth loading states for when the app is performing sequential automated tasks.
-
-## 🎨 Design System & Aesthetic Preferences
-- **Style**: Modern Windows 11 (Mica/Fluent design) infused with a "power-user / developer" visual language. 
-- **Theme**: **Mandatory Dark Mode**. The application must launch in and exclusively use a dark theme to align with its power-user utility profile.
-- **Color Palette Ideas**: 
-  - Deep dark backgrounds (slate/charcoal).
-  - Status colors: Cyber-blue (info), Success Green (enabled/safe), Warning Amber (modifications needed), Alert Red (critical locks/BitLocker).
-- **Typography**: Clean sans-serif (Inter, Segoe UI) with monospace fonts (Consolas/Fira Code) for the terminal/log areas.
+> 📚 For the full technical breakdown — service layers, registry keys, BCD edits, build/run commands, and contribution guidelines — see [`TECHNICAL.md`](TECHNICAL.md).
 
 ---
 
-## 🚀 Getting Started
+## 🖥️ The Interface, Explained
 
-### ✅ Prerequisites
+The window is split into a **left sidebar** (control & diagnostics) and a **main panel** (the feature matrix or logs).
 
-| Requirement | Details |
+### 🎛️ Left Sidebar
+
+| Section | What it shows |
 | :--- | :--- |
-| **OS** | Windows 11 (required for registry and BCD operations) |
-| **Python** | 3.11 or later |
-| **Privileges** | Run terminal **as Administrator** (needed for registry writes and BCD changes) |
-| **pywebview** | Required for native window mode — installed automatically via `requirements.txt` |
+| **Brand header** | App title and "Control Panel" subtitle. |
+| **Navigation** | Two tabs: `Features` (default) and `Execution Logs`. |
+| **System Profile** | The current mode of the machine — `Defender Mode` (secure, default Windows) or `Pirate Mode` (relaxed, ready for hypervisor-bypass tools). |
+| **Optimization Engine** | Two main action buttons: <br>• **PIRATE MODE** — disables conflicting protections in the right sequence. <br>• **DEFENDER MODE** — restores everything from backup. |
+| **Diagnostics** | Live health checks: `Admin Privileges`, `BIOS VT-x/SVM`, `WMI Health`. A green ✓ means you are good to go. |
+| **Banner** | Contextual warnings such as *"Smart App Control is currently in Evaluation Mode"*. |
 
----
+### 🧩 Main Panel — Features Tab
 
-### 📦 Installation
+The **Feature Matrix** is a grid of cards, one per managed Windows security feature. Each card has the same shape:
 
-**1. Clone the repository**
+- **Title** — the feature name (e.g., `Memory Integrity (HVCI)`, `Credential Guard`).
+- **Info icon (ℹ️)** — hover to read a plain-English explanation of what the feature does and why it might block a hypervisor.
+- **Toggle switch** — enable or disable that single feature without running the whole pipeline.
+- **Scope tag** — where the feature lives: `BIOS`, `REGISTRY`, `BCD`, `SERVICE`, `REGISTRY/UEFI`, `REGISTRY/TPM`, `BOOT`, `SYSTEM`.
+- **Target State** — what HyperGuard92 wants this feature to be (e.g., `Disabled`, `Enabled`, `Removed`, `Functional`).
+- **Current State** — what the feature is right now on your machine (`ACTIVE`, `DISABLED`, `LOCKED`, …).
 
-```powershell
-git clone https://github.com/gdias1992/HyperGuardV2.git
-cd HyperGuardV2
-```
+Top-right of the matrix shows a counter like **`0 / 11 Optimizations Applied`** so you can see progress at a glance.
 
-**2. Create and activate a virtual environment**
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-**3. Install runtime dependencies**
-
-```powershell
-pip install -r requirements.txt
-```
-
-> To also install developer tooling (pytest, ruff, mypy):
-> ```powershell
-> pip install -e ".[dev]"
-> ```
-
----
-
-### ⚙️ Environment Configuration
-
-The application is configured through environment variables. A template file is provided:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Then open `.env` and adjust the values as needed:
-
-```dotenv
-# Logging verbosity: DEBUG | INFO | WARN | ERROR
-LOG_LEVEL=INFO
-
-# NiceGUI server bind address and port
-HG_HOST=127.0.0.1
-HG_PORT=8492
-
-# true  → opens the UI in a standalone native desktop window (recommended)
-# false → serves the UI in your default browser at http://<HG_HOST>:<HG_PORT>
-HG_NATIVE=true
-```
-
-| Variable | Default | Description |
+#### Features you can manage
+| # | Feature | Why it matters |
 | :--- | :--- | :--- |
-| `LOG_LEVEL` | `INFO` | Minimum log level written to `logs/app.log` and the console. |
-| `HG_HOST` | `127.0.0.1` | Address NiceGUI binds to. Use `0.0.0.0` to expose on the local network. |
-| `HG_PORT` | `8492` | TCP port the embedded web server listens on. |
-| `HG_NATIVE` | `true` | When `true`, launches a native OS window instead of opening a browser tab. |
+| 1 | Virtualization (VT-x/SVM) | Required by every hypervisor — must stay **enabled**. |
+| 2 | WMI (WinMgmt) | Used internally by HyperGuard92 to read system state. |
+| 3 | VBS (Virtualization-Based Security) | The main blocker; disabling it unlocks everything below. |
+| 4 | HVCI (Memory Integrity) | Blocks unsigned drivers. |
+| 5 | Credential Guard | Isolates LSA secrets inside VBS. |
+| 6 | Driver Signature Enforcement | Blocks unsigned/research drivers. |
+| 7 | KVA Shadow (Meltdown) | Interferes with syscall hooks. |
+| 8 | Windows Hypervisor (Hyper-V) | Holds VT-x exclusively if running. |
+| 9 | FACEIT Anti-Cheat | Kernel filter that blocks unapproved drivers. |
+| 10 | Windows Hello Protection | Tied to VBS keys — must be reset before disabling VBS. |
+| 11 | Secure Biometrics | Enhanced sign-in security uses VBS. |
+| 12 | HyperGuard / System Guard | SMM and boot-integrity protections. |
+| 13 | Smart App Control | Can block the app itself. |
+| 14 | BitLocker | Suspended automatically while boot settings change. |
 
-> **Security note:** `.env` is git-ignored. Never commit it. Only `.env.example` is tracked.
+### 📜 Main Panel — Execution Logs Tab
 
----
-
-### ▶️ Running the Application
-
-**Native desktop window (recommended)**
-
-```powershell
-python -m src
-```
-
-**Browser mode** (useful for remote access or debugging)
-
-```powershell
-$env:HG_NATIVE = "false"; python -m src
-```
-
-Then navigate to `http://127.0.0.1:8492` in your browser.
-
-**Custom host/port override**
-
-```powershell
-$env:HG_HOST = "0.0.0.0"; $env:HG_PORT = "9000"; python -m src
-```
+A terminal-styled view that streams real-time messages while HyperGuard92 works:
+- `[SYSTEM]` lines — app lifecycle events.
+- `[INFO]` lines — successful operations.
+- `[WARN]` lines — non-fatal issues (e.g., a feature is locked by UEFI).
+- `[USER]` lines — actions you triggered (PIRATE / DEFENDER / individual toggles).
+- Each entry is timestamped so you can correlate it with system reboots.
 
 ---
 
-### 🧪 Running Tests
+## ⚠️ Important Warnings
 
-```powershell
-python -m pytest
-```
-
-To run with verbose output and coverage context:
-
-```powershell
-python -m pytest -v
-```
-
----
-
-### 🧹 Code Quality
-
-```powershell
-# Lint and auto-fix
-ruff check . --fix
-
-# Format
-ruff format .
-
-# Static type checking
-mypy src
-```
+- **Run as Administrator.** Without admin rights, the app refuses to make changes.
+- **A reboot is usually required** after PIRATE MODE so registry/BCD/EFI changes take effect.
+- **Windows Hello PIN & biometrics are reset** when VBS is disabled. You will need your Microsoft account password on next login.
+- **BitLocker is briefly suspended** to let boot parameters change, then automatically resumed.
+- **Use only on machines you own.** This tool deliberately weakens Windows protections.
