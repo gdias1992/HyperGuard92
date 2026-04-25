@@ -48,6 +48,9 @@ OPTIMIZATION_STEPS: list[tuple[str, int]] = [
 ]
 
 SystemState = Literal["Defender Mode", "Modifying...", "Pirate Mode"]
+FACEIT_NOT_INSTALLED = "Not Installed"
+FACEIT_NOT_INSTALLED_NORMALIZED = FACEIT_NOT_INSTALLED.casefold()
+ACTIVE_FEATURE_STATUSES = {"Active", "Enabled", "Running", "Monitoring", "On"}
 
 # Inter font + custom scrollbar + tooltip wrap
 EXTRA_HEAD = """
@@ -95,6 +98,8 @@ class AppState:
         self.progress: int = 0
         self.preflight: PreflightReport | None = None
         self.reboot_pending: bool = False
+        self.is_loading_features: bool = False
+        self.hidden_toggle_feature_ids: set[int] = set()
         self._active_task: asyncio.Task[None] | None = None
 
     def add_log(self, msg: str) -> None:
@@ -103,6 +108,8 @@ class AppState:
 
     def reset(self) -> None:
         self.features = clone_features()
+        self.hidden_toggle_feature_ids = set()
+        self.is_loading_features = False
         self.system_state = "Defender Mode"
         self.progress = 0
         self.add_log("[USER] Restored system to default secure state.")
@@ -121,6 +128,9 @@ system_info = SystemInfo()
 def _apply_snapshot(snapshots: list[FeatureSnapshot]) -> None:
     """Update :data:`state.features` in-place from a SystemInfo snapshot."""
     lookup = {s.feature_id: s for s in snapshots}
+    state.hidden_toggle_feature_ids = {
+        snapshot.feature_id for snapshot in snapshots if not snapshot.toggle_visible
+    }
     for feature in state.features:
         snap = lookup.get(feature.id)
         if snap is not None and snap.status:
@@ -129,14 +139,22 @@ def _apply_snapshot(snapshots: list[FeatureSnapshot]) -> None:
 
 async def _refresh_feature_states() -> None:
     """Poll :class:`SystemInfo` off the event loop and refresh the matrix."""
+    state.is_loading_features = True
+    state.add_log("[INFO] Retrieving feature states...")
+    feature_matrix.refresh()
+    logs_panel.refresh()
     try:
         snapshots = await asyncio.to_thread(system_info.snapshot_all)
     except Exception as exc:
         _logger.warning("Could not refresh feature snapshot: %s", exc)
         state.add_log(f"[WARN] Feature snapshot failed: {exc}")
-        return
-    _apply_snapshot(snapshots)
-    feature_matrix.refresh()
+    else:
+        _apply_snapshot(snapshots)
+        state.add_log("[INFO] Feature states updated.")
+    finally:
+        state.is_loading_features = False
+        feature_matrix.refresh()
+        logs_panel.refresh()
 
 
 async def _run_preflight() -> None:
@@ -162,7 +180,7 @@ async def _run_preflight() -> None:
 def _pill_classes(status: str, target: str) -> str:
     """Tailwind classes for the status pill, matching the React mock palette."""
     base = "px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider border"
-    if status in {"Disabled", "Suspended", "Removed", "Failed", "Not Installed", "Off"}:
+    if status in {"Disabled", "Suspended", "Removed", "Failed", FACEIT_NOT_INSTALLED, "Off"}:
         return f"{base} bg-red-500/10 text-red-400 border-red-500/20"
     if status in {"Configured", "Test Signing", "Active (Unnecessary)"}:
         return f"{base} bg-amber-500/10 text-amber-400 border-amber-500/20"
@@ -203,9 +221,11 @@ def _feature_card_classes(feature: Feature) -> str:
         "test signing",
         "active (unnecessary)",
         "unknown",
-        "not installed",
+        FACEIT_NOT_INSTALLED_NORMALIZED,
     }
 
+    if feature.id == 9 and status == FACEIT_NOT_INSTALLED_NORMALIZED:
+        return f"{base} border-red-500/60 hover:border-red-400/80 hover:bg-zinc-900/60"
     if defender != "n/a" and status == defender:
         return f"{base} border-emerald-500/60 hover:border-emerald-400/80 hover:bg-zinc-900/60"
     if status == pirate:
@@ -217,6 +237,13 @@ def _feature_card_classes(feature: Feature) -> str:
     if status in caution_aliases:
         return f"{base} border-amber-500/50 hover:border-amber-400/70 hover:bg-zinc-900/60"
     return f"{base} border-zinc-700 hover:border-zinc-500 hover:bg-zinc-900/60"
+
+
+def _feature_toggle_visible(feature: Feature) -> bool:
+    """Return whether the matrix should render a toggle for ``feature``."""
+    if feature.id == 9 and _normalized_status(feature.status) == FACEIT_NOT_INSTALLED_NORMALIZED:
+        return False
+    return feature.id not in state.hidden_toggle_feature_ids
 
 
 def _log_color(line: str) -> str:
@@ -251,10 +278,22 @@ def feature_matrix() -> None:
             ui.label(
                 "Fine-tune individual security components and isolation boundaries."
             ).classes("text-sm text-zinc-400")
-        ui.label(f"{_optimizations_applied()} / 11 Optimizations Applied").classes(
-            "text-xs text-zinc-500 bg-zinc-900/50 px-3 py-1.5 rounded-lg "
-            "border border-white/5"
-        )
+        with ui.row().classes("items-center gap-3 no-wrap"):
+            if state.is_loading_features:
+                with ui.row().classes(
+                    "items-center gap-2 bg-amber-500/10 border border-amber-500/20 "
+                    "px-3 py-1.5 rounded-lg no-wrap"
+                ):
+                    ui.icon("autorenew").classes(
+                        "text-amber-400 text-sm animate-spin shrink-0"
+                    )
+                    ui.label("Retrieving feature states...").classes(
+                        "text-xs text-amber-200 font-medium"
+                    )
+            ui.label(f"{_optimizations_applied()} / 11 Optimizations Applied").classes(
+                "text-xs text-zinc-500 bg-zinc-900/50 px-3 py-1.5 rounded-lg "
+                "border border-white/5"
+            )
 
     with ui.element("div").classes(
         "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 w-full"
@@ -295,22 +334,16 @@ def _feature_card(feature: Feature) -> None:
                         "text-[10px] mono text-zinc-400 tracking-wider"
                     )
 
-            # Toggle switch — ON (right) means feature is currently active/enabled
-            # in Windows; OFF (left) means it has been moved to its pirate state.
-            switch_disabled = feature.locked or state.is_processing
-            # FACEIT (#9): never allow turning ON when the service is not
-            # installed on the system.
-            if (
-                feature.id == 9
-                and feature.status == "Not Installed"
-            ):
-                switch_disabled = True
-            switch = ui.switch(
-                value=feature.status in {"Active", "Enabled", "Running", "Monitoring", "On"},
-                on_change=lambda _e, fid=feature.id: _toggle_feature(fid),
-            ).classes("shrink-0")
-            if switch_disabled:
-                switch.disable()
+            if _feature_toggle_visible(feature):
+                switch_disabled = (
+                    feature.locked or state.is_processing or state.is_loading_features
+                )
+                switch = ui.switch(
+                    value=feature.status in ACTIVE_FEATURE_STATUSES,
+                    on_change=lambda _e, fid=feature.id: _toggle_feature(fid),
+                ).classes("shrink-0")
+                if switch_disabled:
+                    switch.disable()
 
         # --- Footer ---------------------------------------------------------
         with ui.row().classes(
@@ -555,8 +588,10 @@ def _toggle_feature(feature_id: int) -> None:
     for f in state.features:
         if f.id != feature_id or f.locked:
             continue
-        active_set = {"Active", "Enabled", "Running", "Monitoring", "On"}
-        currently_on = f.status in active_set
+        if not _feature_toggle_visible(f):
+            state.add_log(f"[WARN] {f.name} cannot be toggled on this system.")
+            break
+        currently_on = f.status in ACTIVE_FEATURE_STATUSES
         # FACEIT (#9) requires real service start/stop and must never be
         # toggled "ON" if the service is not installed.
         if f.id == 9:
@@ -591,7 +626,7 @@ async def _toggle_faceit(*, start: bool) -> None:
                     if vbs.services.exists(svc):
                         vbs.services.start(svc)
                         return "Active"
-                return "Not Installed"
+                return FACEIT_NOT_INSTALLED
             for svc in ("FACEIT", "FACEITService"):
                 if vbs.services.exists(svc):
                     vbs.services.stop(svc)

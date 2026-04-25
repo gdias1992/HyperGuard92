@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from src.gui import _feature_card_classes
+import pytest
+
+from src.gui import _feature_card_classes, _feature_toggle_visible, state
 from src.models.feature import Feature
 
 
@@ -10,9 +12,10 @@ def _feature(
     status: str,
     pirate_state: str = "Disabled",
     defender_state: str = "Active",
+    feature_id: int = 99,
 ) -> Feature:
     return Feature(
-        id=99,
+        id=feature_id,
         name="Example",
         pirate_state=pirate_state,
         defender_state=defender_state,
@@ -29,3 +32,22 @@ def test_feature_card_border_is_red_for_pirate_state() -> None:
 
 def test_feature_card_border_is_green_for_defender_state() -> None:
     assert "border-emerald-500" in _feature_card_classes(_feature("Active"))
+
+
+def test_faceit_not_installed_card_border_is_red() -> None:
+    feature = _feature("Not Installed", defender_state="N/A", feature_id=9)
+
+    assert "border-red-500" in _feature_card_classes(feature)
+
+
+def test_faceit_not_installed_hides_toggle() -> None:
+    feature = _feature("Not Installed", defender_state="N/A", feature_id=9)
+
+    assert _feature_toggle_visible(feature) is False
+
+
+def test_hidden_toggle_feature_hides_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
+    feature = _feature("Disabled", feature_id=7)
+    monkeypatch.setattr(state, "hidden_toggle_feature_ids", {7})
+
+    assert _feature_toggle_visible(feature) is False

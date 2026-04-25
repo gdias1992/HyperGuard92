@@ -14,6 +14,7 @@ import ctypes
 import ctypes.wintypes as wt
 import json
 import platform
+import re
 import subprocess
 from dataclasses import dataclass
 from typing import Any
@@ -52,6 +53,7 @@ class FeatureSnapshot:
     name: str
     status: str
     details: str = ""
+    toggle_visible: bool = True
 
 
 class SystemInfo:
@@ -97,7 +99,9 @@ class SystemInfo:
     def is_windows() -> bool:
         return platform.system() == "Windows"
 
-    def _nt_query(self, info_class: int, size: int = 4) -> bytes | None:
+    def _nt_query(
+        self, info_class: int, size: int = 4, *, initialize_length: bool = False
+    ) -> bytes | None:
         """Call ``NtQuerySystemInformation`` and return the raw buffer.
 
         Returns ``None`` on non-Windows platforms or when the call fails.
@@ -110,6 +114,9 @@ class SystemInfo:
             raise SystemInfoError(f"Cannot load ntdll: {exc}") from exc
 
         buffer = ctypes.create_string_buffer(size)
+        if initialize_length and size >= ctypes.sizeof(wt.ULONG):
+            length = wt.ULONG(size)
+            ctypes.memmove(buffer, ctypes.byref(length), ctypes.sizeof(length))
         returned = wt.ULONG(0)
         status = ntdll.NtQuerySystemInformation(
             wt.ULONG(info_class),
@@ -369,26 +376,25 @@ class SystemInfo:
     def driver_signature_status(self) -> str:
         """#6 — DSE status.
 
-        Uses the BCD store as the source of truth (per the Microsoft guidance
-        in PROMPT.md): ``testsigning = Yes`` → Test Mode, ``nointegritychecks
-        = Yes`` → fully disabled. When neither flag is present the kernel
-        Code-Integrity options bitmap (NtQuerySystemInformation 103) acts as a
-        fallback.
+        Uses the BCD store as the source of truth: either ``testsigning Yes``
+        or ``nointegritychecks Yes`` means Driver Signature Enforcement is
+        disabled. When neither flag is present the kernel Code-Integrity
+        options bitmap (NtQuerySystemInformation 103) acts as a fallback.
         """
         bcd = self._bcd_dse_flags()
         if bcd is not None:
             testsigning, nointegritychecks = bcd
-            if nointegritychecks:
+            if testsigning or nointegritychecks:
                 return "Disabled"
-            if testsigning:
-                return "Test Signing"
             return "Enabled"
-        buf = self._nt_query(SYSTEM_CODE_INTEGRITY_INFORMATION, size=8)
+        buf = self._nt_query(
+            SYSTEM_CODE_INTEGRITY_INFORMATION, size=8, initialize_length=True
+        )
         if not buf or len(buf) < 8:
             return "Unknown"
         options = int.from_bytes(buf[4:8], "little")
         if options & CODE_INTEGRITY_OPTION_TESTSIGN:
-            return "Test Signing"
+            return "Disabled"
         if not (options & CODE_INTEGRITY_OPTION_ENABLED):
             return "Disabled"
         return "Enabled"
@@ -399,7 +405,7 @@ class SystemInfo:
             return None
         try:
             result = subprocess.run(
-                ["bcdedit"],
+                ["bcdedit.exe"],
                 capture_output=True,
                 text=True,
                 timeout=15,
@@ -410,15 +416,11 @@ class SystemInfo:
             return None
         if result.returncode != 0:
             return None
-        text = (result.stdout or "").lower()
-        testsigning = False
-        nointegritychecks = False
-        for line in text.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("testsigning") and stripped.endswith("yes"):
-                testsigning = True
-            elif stripped.startswith("nointegritychecks") and stripped.endswith("yes"):
-                nointegritychecks = True
+        text = result.stdout or ""
+        testsigning = bool(re.search(r"(?im)^\s*testsigning\s+yes\b", text))
+        nointegritychecks = bool(
+            re.search(r"(?im)^\s*nointegritychecks\s+yes\b", text)
+        )
         return testsigning, nointegritychecks
 
     def cpu_vendor(self) -> str:
@@ -427,23 +429,22 @@ class SystemInfo:
             return ""
         return str(self._processor_info().get("Manufacturer", "") or "").strip()
 
+    def processor_is_amd(self) -> bool:
+        """Return whether the host processor vendor is AMD."""
+        return "amd" in self.cpu_vendor().casefold()
+
     def kva_shadow_state(self) -> str:
         """#7 — KVA Shadow status with hardware-vulnerability awareness.
 
         Returns one of:
 
-        * ``"Not Required (AMD)"`` — hardware is immune to Meltdown.
+        * ``"Disabled"`` — mitigation is off or not required on AMD hardware.
         * ``"Active"`` — mitigation is currently protecting the kernel.
-        * ``"Disabled"`` — vulnerable hardware with mitigation off.
         * ``"Unknown"`` — cannot be determined.
         """
-        vendor = self.cpu_vendor().lower()
-        is_amd = "amd" in vendor
+        if self.processor_is_amd():
+            return "Disabled"
         active = self.kva_shadow_active()
-        if is_amd and not active:
-            return "Not Required (AMD)"
-        if is_amd and active:
-            return "Active (Unnecessary)"
         if active:
             return "Active"
         return "Disabled"
@@ -626,7 +627,8 @@ class SystemInfo:
         dse = self.driver_signature_status()
         sac = self.smart_app_control_state()
         cg = self.credential_guard_state()
-        kva = self.kva_shadow_state()
+        processor_is_amd = self.processor_is_amd()
+        kva = "Disabled" if processor_is_amd else self.kva_shadow_state()
         faceit = self.faceit_status()
         hyper = _yn(self.hypervisor_present())
 
@@ -645,7 +647,13 @@ class SystemInfo:
             FeatureSnapshot(4, "HVCI (Memory Integrity)", _yn(self.hvci_active())),
             FeatureSnapshot(5, "Credential Guard", cg),
             FeatureSnapshot(6, "Driver Signature Enf.", dse),
-            FeatureSnapshot(7, "KVA Shadow (Meltdown)", kva),
+            FeatureSnapshot(
+                7,
+                "KVA Shadow (Meltdown)",
+                kva,
+                "AMD processors do not require KVA Shadow." if processor_is_amd else "",
+                toggle_visible=not processor_is_amd,
+            ),
             FeatureSnapshot(8, "Windows Hypervisor", hyper),
             FeatureSnapshot(9, "FACEIT Anti-Cheat", faceit),
             FeatureSnapshot(10, "Windows Hello Protection", _yn(self.windows_hello_enabled())),

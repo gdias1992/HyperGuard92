@@ -80,3 +80,67 @@ def test_faceit_installed_checks_all_known_service_names(
 
     assert info.faceit_installed() is True
     assert checked == ["FACEIT", "FACEITService"]
+
+
+def test_driver_signature_status_treats_bcd_test_mode_as_disabled(
+    windows: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    info = SystemInfo(registry=_Registry())  # type: ignore[arg-type]
+
+    def run_bcdedit(
+        command: list[str],
+        capture_output: bool,
+        text: bool,
+        timeout: int,
+        check: bool,
+    ) -> subprocess.CompletedProcess[str]:
+        assert command == ["bcdedit.exe"]
+        assert capture_output is True
+        assert text is True
+        assert timeout == 15
+        assert check is False
+        output = "Windows Boot Loader\n-------------------\ntestsigning              Yes\n"
+        return subprocess.CompletedProcess(command, 0, output, "")
+
+    monkeypatch.setattr(subprocess, "run", run_bcdedit)
+    monkeypatch.setattr(
+        info,
+        "_nt_query",
+        lambda *_args, **_kwargs: pytest.fail("BCD flags should be authoritative"),
+    )
+
+    assert info.driver_signature_status() == "Disabled"
+
+
+def test_driver_signature_status_initializes_code_integrity_query(
+    windows: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    info = SystemInfo(registry=_Registry())  # type: ignore[arg-type]
+    calls: list[tuple[int, int, bool]] = []
+
+    def nt_query(
+        info_class: int, size: int = 4, *, initialize_length: bool = False
+    ) -> bytes:
+        calls.append((info_class, size, initialize_length))
+        return (8).to_bytes(4, "little") + (1).to_bytes(4, "little")
+
+    monkeypatch.setattr(info, "_bcd_dse_flags", lambda: None)
+    monkeypatch.setattr(info, "_nt_query", nt_query)
+
+    assert info.driver_signature_status() == "Enabled"
+    assert calls == [(103, 8, True)]
+
+
+def test_kva_shadow_state_reports_disabled_for_amd(
+    windows: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    info = SystemInfo(registry=_Registry())  # type: ignore[arg-type]
+
+    monkeypatch.setattr(info, "cpu_vendor", lambda: "AuthenticAMD")
+    monkeypatch.setattr(
+        info,
+        "kva_shadow_active",
+        lambda: pytest.fail("AMD processors should not probe KVA Shadow state"),
+    )
+
+    assert info.kva_shadow_state() == "Disabled"
