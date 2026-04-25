@@ -156,9 +156,11 @@ async def _run_preflight() -> None:
 def _pill_classes(status: str, target: str) -> str:
     """Tailwind classes for the status pill, matching the React mock palette."""
     base = "px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider border"
-    if status in {"Disabled", "Suspended", "Removed"}:
+    if status in {"Disabled", "Suspended", "Removed", "Failed", "Not Installed", "Off"}:
         return f"{base} bg-red-500/10 text-red-400 border-red-500/20"
-    if status == "Active" or status == target:
+    if status in {"Configured", "Test Signing", "Active (Unnecessary)"}:
+        return f"{base} bg-amber-500/10 text-amber-400 border-amber-500/20"
+    if status in {"Active", "Enabled", "Running", "Functional", "On", "Not Required (AMD)"} or status == target:
         return f"{base} bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
     if status == "Monitoring":
         return f"{base} bg-white/10 text-white border-white/20"
@@ -178,7 +180,9 @@ def _log_color(line: str) -> str:
 
 
 def _optimizations_applied() -> int:
-    return sum(1 for f in state.features if f.status == f.target and not f.locked)
+    return sum(
+        1 for f in state.features if f.status == f.pirate_state and not f.locked
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -241,28 +245,47 @@ def _feature_card(feature: Feature) -> None:
                     )
 
             # Toggle switch — ON (right) means feature is currently active/enabled
-            # in Windows; OFF (left) means it has been moved to its target state.
+            # in Windows; OFF (left) means it has been moved to its pirate state.
+            switch_disabled = feature.locked or state.is_processing
+            # FACEIT (#9): never allow turning ON when the service is not
+            # installed on the system.
+            if (
+                feature.id == 9
+                and feature.status == "Not Installed"
+            ):
+                switch_disabled = True
             switch = ui.switch(
-                value=feature.status in {"Active", "Monitoring"},
+                value=feature.status in {"Active", "Enabled", "Running", "Monitoring", "On"},
                 on_change=lambda _e, fid=feature.id: _toggle_feature(fid),
             ).classes("shrink-0")
-            if feature.locked or state.is_processing:
+            if switch_disabled:
                 switch.disable()
 
         # --- Footer ---------------------------------------------------------
         with ui.row().classes(
-            "mt-auto pt-4 border-t border-white/5 items-end justify-between w-full"
+            "mt-auto pt-4 border-t border-white/5 items-end justify-between w-full gap-3 no-wrap"
         ):
-            with ui.column().classes("gap-1"):
-                ui.label("Target State").classes(
+            with ui.column().classes("gap-1 min-w-0"):
+                ui.label("Pirate").classes(
                     "text-[9px] uppercase tracking-widest text-zinc-600 font-bold"
                 )
-                ui.label(feature.target).classes("text-xs font-medium text-zinc-300")
-            with ui.column().classes("gap-1.5 items-end"):
+                ui.label(feature.pirate_state).classes(
+                    "text-xs font-medium text-red-300 truncate"
+                )
+            with ui.column().classes("gap-1 min-w-0"):
+                ui.label("Defender").classes(
+                    "text-[9px] uppercase tracking-widest text-zinc-600 font-bold"
+                )
+                ui.label(feature.defender_state).classes(
+                    "text-xs font-medium text-emerald-300 truncate"
+                )
+            with ui.column().classes("gap-1.5 items-end min-w-0"):
                 ui.label("Current").classes(
                     "text-[9px] uppercase tracking-widest text-zinc-600 font-bold"
                 )
-                ui.label(feature.status).classes(_pill_classes(feature.status, feature.target))
+                ui.label(feature.status).classes(
+                    _pill_classes(feature.status, feature.pirate_state)
+                )
 
 
 @ui.refreshable
@@ -478,10 +501,65 @@ def _switch_tab(tab: str) -> None:
 
 def _toggle_feature(feature_id: int) -> None:
     for f in state.features:
-        if f.id == feature_id and not f.locked:
-            new_status = f.target if f.status == "Active" else "Active"
+        if f.id != feature_id or f.locked:
+            continue
+        active_set = {"Active", "Enabled", "Running", "Monitoring", "On"}
+        currently_on = f.status in active_set
+        # FACEIT (#9) requires real service start/stop and must never be
+        # toggled "ON" if the service is not installed.
+        if f.id == 9:
+            if not currently_on and f.status == "Not Installed":
+                state.add_log(
+                    "[WARN] FACEIT service is not installed — cannot enable."
+                )
+                feature_matrix.refresh()
+                logs_panel.refresh()
+                return
+            task = asyncio.create_task(_toggle_faceit(start=not currently_on))
+            state._active_task = task
+            return
+        new_status = f.pirate_state if currently_on else "Active"
+        f.status = new_status
+        state.add_log(f"[USER] Toggled {f.name} to {new_status}")
+        break
+    feature_matrix.refresh()
+    logs_panel.refresh()
+
+
+async def _toggle_faceit(*, start: bool) -> None:
+    """Explicitly start or stop the FACEIT service from the matrix toggle."""
+    action = "start" if start else "stop"
+    state.add_log(f"[USER] FACEIT toggle requested ({action}).")
+    logs_panel.refresh()
+
+    def _work() -> str:
+        try:
+            if start:
+                for svc in ("FACEIT", "FACEITService"):
+                    if vbs.services.exists(svc):
+                        vbs.services.start(svc)
+                        return "Active"
+                return "Not Installed"
+            for svc in ("FACEIT", "FACEITService"):
+                if vbs.services.exists(svc):
+                    vbs.services.stop(svc)
+            return "Disabled"
+        except Exception as exc:  # pragma: no cover - Windows-only
+            _logger.exception("FACEIT toggle failed")
+            raise exc
+
+    try:
+        new_status = await asyncio.to_thread(_work)
+    except Exception as exc:
+        state.add_log(f"[ERROR] FACEIT toggle failed: {exc}")
+        feature_matrix.refresh()
+        logs_panel.refresh()
+        return
+
+    for f in state.features:
+        if f.id == 9:
             f.status = new_status
-            state.add_log(f"[USER] Toggled {f.name} to {new_status}")
+            state.add_log(f"[ACTION] FACEIT service is now {new_status}.")
             break
     feature_matrix.refresh()
     logs_panel.refresh()

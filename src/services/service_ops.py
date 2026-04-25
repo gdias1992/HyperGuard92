@@ -115,6 +115,41 @@ class ServiceOps:
             )
         return OperationResult(step=f"stop {name}", status=OperationStatus.SUCCESS)
 
+    def start(self, name: str) -> OperationResult:
+        """Start service ``name`` if it is not running."""
+        if self.dry_run:
+            logger.info("[DRY-RUN] Would start service %s", name)
+            return OperationResult(
+                step=f"start {name}",
+                status=OperationStatus.DRY_RUN,
+                message="Dry-run: service left untouched.",
+            )
+
+        if win32serviceutil is not None:
+            try:
+                win32serviceutil.StartService(name)
+            except Exception as exc:  # pragma: no cover - Windows-only
+                if "1056" in str(exc):  # already running
+                    return OperationResult(
+                        step=f"start {name}",
+                        status=OperationStatus.SKIPPED,
+                        message="Service already running.",
+                    )
+                raise ServiceControlError(f"Failed to start {name}: {exc}") from exc
+            return OperationResult(
+                step=f"start {name}",
+                status=OperationStatus.SUCCESS,
+            )
+
+        result = subprocess.run(
+            ["sc", "start", name], capture_output=True, text=True, check=False
+        )
+        if result.returncode not in (0, 1056):
+            raise ServiceControlError(
+                f"sc start {name} failed (rc={result.returncode}): {result.stderr.strip()}"
+            )
+        return OperationResult(step=f"start {name}", status=OperationStatus.SUCCESS)
+
     def disable(self, name: str) -> OperationResult:
         """Set service ``name`` start type to ``disabled``."""
         if self.dry_run:

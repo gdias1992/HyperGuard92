@@ -1,6 +1,12 @@
 """Feature domain model and the canonical seed list managed by HyperGuard92.
 
-Mirrors the React prototype's ``INITIAL_FEATURES`` data with the same 14 rows.
+Each feature is tracked with three distinct states:
+
+* ``pirate_state``   — the state PIRATE MODE (``VBS_1.6.2.cmd``) drives the
+  feature towards in order to allow bypass / hooking software to run.
+* ``defender_state`` — the state preferred by Windows Defender for maximum
+  security and isolation.
+* ``status``         — the live observed state on the running system.
 """
 
 from __future__ import annotations
@@ -15,18 +21,31 @@ class Feature(BaseModel):
 
     id: int = Field(..., description="Stable identifier (1-based index).")
     name: str = Field(..., description="Human-readable feature name.")
-    target: str = Field(..., description="Desired final state once optimized.")
+    pirate_state: str = Field(
+        ...,
+        description="State PIRATE MODE drives the feature towards (bypass-friendly).",
+    )
+    defender_state: str = Field(
+        ...,
+        description="State Windows Defender prefers for maximum security.",
+    )
     scope: str = Field(..., description="Where the feature lives (BIOS, Registry, BCD...).")
-    status: str = Field(..., description="Current observed state.")
+    status: str = Field(..., description="Current observed runtime state.")
     locked: bool = Field(..., description="True if the feature cannot be toggled by the user.")
     desc: str = Field(..., description="Detailed technical explanation shown in tooltips.")
+
+    @property
+    def target(self) -> str:
+        """Backward-compatible alias for :attr:`pirate_state`."""
+        return self.pirate_state
 
 
 INITIAL_FEATURES: list[Feature] = [
     Feature(
         id=1,
         name="Virtualization (VT-x/SVM)",
-        target="Enabled",
+        pirate_state="Enabled",
+        defender_state="Enabled",
         scope="BIOS",
         status="Active",
         locked=True,
@@ -41,7 +60,8 @@ INITIAL_FEATURES: list[Feature] = [
     Feature(
         id=2,
         name="WMI (WinMgmt)",
-        target="Functional",
+        pirate_state="Functional",
+        defender_state="Functional",
         scope="System",
         status="Active",
         locked=True,
@@ -55,7 +75,8 @@ INITIAL_FEATURES: list[Feature] = [
     Feature(
         id=3,
         name="VBS (Virtualization Based Security)",
-        target="Disabled",
+        pirate_state="Disabled",
+        defender_state="Active",
         scope="Registry/UEFI",
         status="Active",
         locked=False,
@@ -70,7 +91,8 @@ INITIAL_FEATURES: list[Feature] = [
     Feature(
         id=4,
         name="HVCI (Memory Integrity)",
-        target="Disabled",
+        pirate_state="Disabled",
+        defender_state="Active",
         scope="Registry/UEFI",
         status="Active",
         locked=False,
@@ -84,7 +106,8 @@ INITIAL_FEATURES: list[Feature] = [
     Feature(
         id=5,
         name="Credential Guard",
-        target="Disabled",
+        pirate_state="Disabled",
+        defender_state="Running",
         scope="Registry/UEFI",
         status="Active",
         locked=False,
@@ -98,7 +121,8 @@ INITIAL_FEATURES: list[Feature] = [
     Feature(
         id=6,
         name="Driver Signature Enforcement",
-        target="Disabled",
+        pirate_state="Disabled",
+        defender_state="Enabled",
         scope="Boot",
         status="Active",
         locked=False,
@@ -112,7 +136,8 @@ INITIAL_FEATURES: list[Feature] = [
     Feature(
         id=7,
         name="KVA Shadow (Meltdown)",
-        target="Disabled",
+        pirate_state="Disabled",
+        defender_state="Active",
         scope="Registry",
         status="Active",
         locked=False,
@@ -126,7 +151,8 @@ INITIAL_FEATURES: list[Feature] = [
     Feature(
         id=8,
         name="Windows Hypervisor",
-        target="Disabled",
+        pirate_state="Disabled",
+        defender_state="Active",
         scope="BCD",
         status="Active",
         locked=False,
@@ -140,7 +166,8 @@ INITIAL_FEATURES: list[Feature] = [
     Feature(
         id=9,
         name="FACEIT Anti-Cheat",
-        target="Disabled",
+        pirate_state="Disabled",
+        defender_state="N/A",
         scope="Service",
         status="Active",
         locked=False,
@@ -154,7 +181,8 @@ INITIAL_FEATURES: list[Feature] = [
     Feature(
         id=10,
         name="Windows Hello Protection",
-        target="Removed",
+        pirate_state="Removed",
+        defender_state="Active",
         scope="Registry/TPM",
         status="Active",
         locked=False,
@@ -168,7 +196,8 @@ INITIAL_FEATURES: list[Feature] = [
     Feature(
         id=11,
         name="Secure Biometrics",
-        target="Disabled",
+        pirate_state="Disabled",
+        defender_state="Active",
         scope="Registry",
         status="Active",
         locked=False,
@@ -181,7 +210,8 @@ INITIAL_FEATURES: list[Feature] = [
     Feature(
         id=12,
         name="HyperGuard / Sys Guard",
-        target="Disabled",
+        pirate_state="Disabled",
+        defender_state="Active",
         scope="Registry",
         status="Active",
         locked=False,
@@ -194,7 +224,8 @@ INITIAL_FEATURES: list[Feature] = [
     Feature(
         id=13,
         name="Smart App Control",
-        target="Monitor",
+        pirate_state="Monitor",
+        defender_state="On",
         scope="Registry",
         status="Monitoring",
         locked=True,
@@ -207,7 +238,8 @@ INITIAL_FEATURES: list[Feature] = [
     Feature(
         id=14,
         name="BitLocker",
-        target="Suspended",
+        pirate_state="Suspended",
+        defender_state="Active",
         scope="System",
         status="Active",
         locked=False,
